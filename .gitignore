@@ -16,3 +16,9 @@
 *.exe
 *.out
 *.app
+
+# auto generation
+*.bin
+*.elf
+*.lst
+*.hex
