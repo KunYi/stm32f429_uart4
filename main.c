@@ -71,10 +71,10 @@ void init_UART4(uint32_t baudrate) {
     USART_Cmd(UART4, ENABLE);
 }
 
-void UART4_puts(USART_TypeDef* USARTx, volatile char *s) {
+void UART4_puts(volatile char *s) {
     while(*s) {
-        while (!(USARTx->SR & 0x40));
-        USART_SendData(USARTx, *s);
+        while (!(UART4->SR & 0x40));
+        USART_SendData(UART4, *s);
         s++;
     }
 }
@@ -94,7 +94,7 @@ int main(void)
   
   /* Add your application code here */
   init_UART4(115200);
-  UART4_puts(UART4, "Hello World!\r\n");
+  UART4_puts("Hello World!\r\n");
     
   /* Infinite loop */
   while (1)
