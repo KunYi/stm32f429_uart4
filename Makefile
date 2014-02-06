@@ -7,58 +7,75 @@ HEX_IMAGE = $(PROJECT).hex
 # set the path to STM32F429I-Discovery firmware package
 STDP ?= ../STM32F429I-Discovery_FW_V1.0.1
 
-CROSS_COMPILE = arm-none-eabi-
-
+# Toolchain configurations
+CROSS_COMPILE ?= arm-none-eabi-
 CC = $(CROSS_COMPILE)gcc
+LD = $(CROSS_COMPILE)ld
 OBJCOPY = $(CROSS_COMPILE)objcopy
 OBJDUMP = $(CROSS_COMPILE)objdump
 SIZE = $(CROSS_COMPILE)size
 
-LIBS = -lm
-CFLAGS = -g -std=c99 -O3 -ffast-math
+# Cortex-M4 implements the ARMv7E-M architecture
+CPU = cortex-m4
+CFLAGS = -mcpu=$(CPU) -march=armv7e-m -mtune=cortex-m4
 CFLAGS += -mlittle-endian -mthumb
-CFLAGS += -mcpu=cortex-m4 -DSTM32F429_439xx
-#CFLAGS += -nostartfiles
-#CFLAGS += -ffreestanding
-#CFLAGS += -nostdlib
-CFLAGS += -Wl,--gc-sections
 
-# FPU
-CFLAGS += -mfpu=fpv4-sp-d16 -mfloat-abi=hard
-CFLAGS += -DARM_MATH_CM4 -D__FPU_PRESENT
+LDFLAGS =
+define get_library_path
+    $(shell dirname $(shell $(CC) $(CFLAGS) -print-file-name=$(1)))
+endef
+LDFLAGS += -L $(call get_library_path,libc.a)
+LDFLAGS += -L $(call get_library_path,libgcc.a)
+
+# Basic configurations
+CFLAGS += -g -std=c99
+CFLAGS += -Wall
+
+# Optimizations
+CFLAGS += -g -std=c99 -O3 -ffast-math
+CFLAGS += -ffunction-sections -fdata-sections
+CFLAGS += -Wl,--gc-sections
+CFLAGS += -fno-common
+CFLAGS += --param max-inline-insns-single=1000
+
+
+# specify STM32F429
+CFLAGS += -DSTM32F429_439xx
 
 # to run from FLASH
 CFLAGS += -DVECT_TAB_FLASH
-CFLAGS += -Wl,-T,stm32f429zi_flash.ld
+LDFLAGS += -T stm32f429zi_flash.ld
 
 # PROJECT SOURCE
 CFLAGS += -I.
-SOURCE = *.c
+OBJS = \
+    main.o \
+    stm32f4xx_it.o \
+    system_stm32f4xx.o
 
 # STARTUP FILE
-SOURCE += startup_stm32f429_439xx.S
+OBJS += startup_stm32f429_439xx.o
 
 # CMSIS
 CFLAGS += -I$(STDP)/Libraries/CMSIS/Device/ST/STM32F4xx/Include
 CFLAGS += -I$(STDP)/Libraries/CMSIS/Include
-SOURCE += $(STDP)/Libraries/CMSIS/Lib/GCC/libarm_cortexM4lf_math.a
-
-# STemWinLibrary522_4x9i
-CFLAGS += -I$(STDP)/Libraries/STemWinLibrary522_4x9i/inc
-SOURCE += $(STDP)/Libraries/STemWinLibrary522_4x9i/Lib/STemWin522_4x9i_CM4_OS_GCC.a
 
 # STM32F4xx_StdPeriph_Driver
 CFLAGS += -DUSE_STDPERIPH_DRIVER
 CFLAGS += -I$(STDP)/Libraries/STM32F4xx_StdPeriph_Driver/inc
+CFLAGS += -D"assert_param(expr)=((void)0)"
+OBJS += \
+    $(STDP)/Libraries/STM32F4xx_StdPeriph_Driver/src/misc.o \
+    $(STDP)/Libraries/STM32F4xx_StdPeriph_Driver/src/stm32f4xx_gpio.o \
+    $(STDP)/Libraries/STM32F4xx_StdPeriph_Driver/src/stm32f4xx_rcc.o \
+    $(STDP)/Libraries/STM32F4xx_StdPeriph_Driver/src/stm32f4xx_usart.o \
+    $(STDP)/Libraries/STM32F4xx_StdPeriph_Driver/src/stm32f4xx_syscfg.o
 
 # STM32F429I-Discovery Utilities
 CFLAGS += -I$(STDP)/Utilities/STM32F429I-Discovery
-SOURCE += $(STDP)/Utilities/STM32F429I-Discovery/stm32f429i_discovery.c
-SOURCE += $(STDP)/Utilities/STM32F429I-Discovery/stm32f429i_discovery_l3gd20.c
-SOURCE += $(STDP)/Utilities/STM32F429I-Discovery/stm32f429i_discovery_lcd.c
-SOURCE += $(STDP)/Utilities/STM32F429I-Discovery/stm32f429i_discovery_sdram.c
 
-all: libSTM32F4xx_StdPeriph_Driver.a $(BIN_IMAGE)
+
+all: $(BIN_IMAGE)
 
 $(BIN_IMAGE): $(EXECUTABLE)
 	$(OBJCOPY) -O binary $^ $@
@@ -66,19 +83,22 @@ $(BIN_IMAGE): $(EXECUTABLE)
 	$(OBJDUMP) -h -S -D $(EXECUTABLE) > $(PROJECT).lst
 	$(SIZE) $(EXECUTABLE)
 	
-$(EXECUTABLE): $(SOURCE)
-	$(CC) $(CFLAGS) $^ -o $@ libSTM32F4xx_StdPeriph_Driver.a $(LIBS)
-	
-libSTM32F4xx_StdPeriph_Driver.a: 
-	$(CC) $(CFLAGS) -c -D"assert_param(expr)=((void)0)" $(STDP)/Libraries/STM32F4xx_StdPeriph_Driver/src/*.c
-	@$(AR) cr $@ *.o 
-	rm -rf *.o
+$(EXECUTABLE): $(OBJS)
+	$(LD) -o $@ $(OBJS) \
+		--start-group $(LIBS) --end-group \
+		$(LDFLAGS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+%.o: %.S
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
 	rm -rf $(EXECUTABLE)
 	rm -rf $(BIN_IMAGE)
 	rm -rf $(HEX_IMAGE)
-	rm -f libSTM32F4xx_StdPeriph_Driver.a
+	rm -f $(OBJS)
 	rm -f $(PROJECT).lst
 
 flash:
